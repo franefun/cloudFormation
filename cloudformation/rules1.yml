@@ -22,11 +22,19 @@ Parameters:
     ConstraintDescription: Must be between 1 and 5
 
 Rules:
-  ProdEnvironmentRule:
+  ProdDevEnvironmentRule:
     Assertions:
-      - Assert: !Equals [ !Ref NumberOfInstances,  "5" ]
-        AssertDescription: Prod environment must have 5 instances
-    RuleCondition: !Equals [ !Ref Environment, prod ]
+      - Assert: !Equals [ !Ref NumberOfInstances, "5" ]
+        AssertDescription: Prod y Dev deben tener 5 instancias
+    RuleCondition:
+      Fn::Or:
+        - Fn::Equals:
+            - !Ref Environment
+            - prod
+        - Fn::Equals:
+            - !Ref Environment
+            - dev
+   
 
 Resources:
   DemoBucket:
