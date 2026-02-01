@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RDS MySQL en subredes privadas usando Mappings y Multi-AZ
+
+Parameters:
+
+  Environment:
+    Type: String
+    Default: Dev
+    AllowedValues:
+      - Dev
+      - Prod
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC existente
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subred privada AZ1
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Subred privada AZ2
+
+  DBUsername:
+    Type: String
+    Description: Usuario administrador de la base de datos
+
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: Contraseña de la base de datos
+
+  DBEngineVersion:
+    Type: String
+    Default: "8.0.40"
+    Description: Versión de MySQL
+
+Mappings:
+  DBInstanceMap:
+    Dev:
+      InstanceClass: db.t3.micro
+    Prod:
+      InstanceClass: db.t3.medium
+
+Resources:
+
+  MyRDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Seguridad para RDS MySQL
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: !Ref PrivateSubnet1
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: !Ref PrivateSubnet2
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  MyDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group para RDS en subredes privadas
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+  MyRDSInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: !Sub "${Environment}-mysql-db"
+      AllocatedStorage: 20
+      DBInstanceClass: !FindInMap [DBInstanceMap, !Ref Environment, InstanceClass]
+      Engine: mysql
+      EngineVersion: !Ref DBEngineVersion
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      VPCSecurityGroups:
+        - !GetAtt MyRDSSecurityGroup.GroupId
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      MultiAZ: true
+      PubliclyAccessible: false
+      StorageType: gp2
+      BackupRetentionPeriod: 7
+      DeletionProtection: true
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+
+
+Outputs:
+
+  RDSEndpoint:
+    Description: Endpoint de conexión a la base de datos
+    Value: !GetAtt MyRDSInstance.Endpoint.Address
+
