@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC con subred pública e instancia EC2 
+
+Parameters:
+  CrearInstancia:
+    Type: String
+    Description: Determina si se crea la instancia EC2
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  TipoInstancia:
+    Type: String
+    Description: Tipo de instancia EC2 permitido
+    Default: t2.micro
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t3.micro
+
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: "KeyPair para acceso SSH"
+
+  AmiId:
+    Type: AWS::EC2::Image::Id
+    Description: "AMI de la EC2 (ej: Amazon Linux 2)"
+    Default: "ami-07ff62358b87c7116"
+
+
+Rules:
+  ValidacionTipoInstancia:
+    Assertions:
+      - Assert: !Or
+          - !Equals [!Ref TipoInstancia, t2.micro]
+          - !Equals [!Ref TipoInstancia, t2.small]
+          - !Equals [!Ref TipoInstancia, t3.micro]
+        AssertDescription: Solo se permiten los tipos de instancia t2.micro, t2.small o t3.micro
+
+Conditions:
+  CrearEC2: !Equals [!Ref CrearInstancia, "true"]
+
+Resources:
+  MiVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Join  ['-', [!Ref AWS::Region, !Ref AWS::StackName, VPC] ]
+
+  SubredPublica:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MiVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Join  ['-', [!Ref AWS::Region, !Ref AWS::StackName, subredPublica] ]
+
+  GrupoSeguridad:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SG-plantilla1
+      GroupDescription: Grupo de seguridad para instancia EC2
+      VpcId: !Ref MiVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Join  ['-', [!Ref AWS::Region, !Ref AWS::StackName, SG] ]
+
+  InstanciaEC2:
+    Type: AWS::EC2::Instance
+    Condition: CrearEC2
+    Properties:
+      InstanceType: !Ref TipoInstancia
+      ImageId: !Ref AmiId
+      KeyName: !Ref KeyName
+      SubnetId: !Ref SubredPublica
+      SecurityGroupIds:
+        - !Ref GrupoSeguridad
+      Tags:
+        - Key: Name
+          Value: !Join  ['-', [!Ref AWS::Region, !Ref AWS::StackName] ]
+        - Key: VPCID
+          Value: !GetAtt MiVPC.VpcId
+
+Outputs:
+  IDdeVPC:
+    Description: ID de la VPC creada
+    Value: !Ref MiVPC
+
+  IDSubredPublica:
+    Description: ID de la subred pública
+    Value: !Ref SubredPublica
+
+  IDInstancia:
+    Description: ID de la instancia EC2
+    Condition: CrearEC2
+    Value: !Ref InstanciaEC2
+
+  NombreInstancia:
+    Description: Nombre formado con Join 
+    Condition: CrearEC2
+    Value: !Join ['-', [!Ref AWS::Region, !Ref AWS::StackName] ]

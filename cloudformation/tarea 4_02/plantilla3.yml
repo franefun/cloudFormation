@@ -1,0 +1,135 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: ALB y Auto Scaling Group con Launch Template
+
+Parameters:
+  
+  ALBPublico:
+    Type: String
+    Description: Determina si el ALB es público o interno
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  SubnetAz1:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: "Zona de disponibilidad para la subred 1"
+
+  SubnetAz2:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Description: "Zona de disponibilidad para la subred 2"
+
+Conditions:
+  Publico: !Equals [ !Ref ALBPublico, "true" ]
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.0.0.0/20"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: "VPC-ALB-ASG"
+
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.0.0/24"
+      AvailabilityZone: !Ref SubnetAz1
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "Subnet1"
+
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: "10.0.1.0/24"
+      AvailabilityZone: !Ref SubnetAz2
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "Subnet2"
+
+  mySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Acceso HTTP y HTTPS
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: "gs-ALB"
+
+  myLoadBalancer:
+    Type: 'AWS::ElasticLoadBalancingV2::LoadBalancer'
+    Properties:
+      Name: my-alb
+      Type: application
+      Scheme: !If [Publico, internet-facing, internal]
+      Subnets: 
+        - !Ref Subnet1
+        - !Ref Subnet2
+      SecurityGroups: 
+        - !Ref mySecurityGroup
+      LoadBalancerAttributes: 
+        - Key: "deletion_protection.enabled"
+          Value: "true"
+          
+  RouteTablePublica:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: RT-Publica
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: "VPC-IGW"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !If [Publico, !Ref InternetGateway, !Ref "AWS::NoValue"]
+
+  RoutePublica:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTablePublica
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !If
+        - Publico
+        - !Ref InternetGateway
+        - !Ref AWS::NoValue
+
+Outputs:
+  VpcId:
+    Description: "ID de la VPC creada"
+    Value: !Ref VPC
+
+  SubnetId1:
+    Description: "ID de la Subred creada"
+    Value: !Ref Subnet1
+
+  SubnetId2:
+    Description: "ID de la Subred creada"
+    Value: !Ref Subnet2
+
+  LoadBalancerDNS:
+    Description: "DNS del Load Balancer"
+    Value: !GetAtt myLoadBalancer.DNSName
+    

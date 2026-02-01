@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: VPC con subredes en diferentes regiones
+
+Parameters:
+
+  Region:
+    Type: String
+    Description: "Región donde se desplegará la VPC"
+    Default: "us-east-1a"
+    AllowedValues:
+      - us-east-1
+      - us-west-2
+
+  VpcName:
+    Type: String
+    Description: "Nombre de la VPC"
+    Default: "VPC-fran"
+
+  AdjuntarIGW:
+    Type: String
+    Description: Determina si se adjunta un Internet Gateway a la VPC
+    Default: "true"
+    AllowedValues:
+      - "true"
+      - "false"
+
+
+Mappings:
+      RegionCIDRMap:
+        us-east-1:
+          VpcCidr: "10.0.0.0/20"
+          Subnet1: "10.0.0.0/24"
+          subnet2: "10.0.1.0/24"
+        us-west-2:
+          VpcCidr: "172.16.0.0/20"
+          Subnet1: "172.16.0.0/24"
+          subnet2: "172.16.1.0/24"
+
+Conditions:
+  Adjuntar: !Equals [!Ref AdjuntarIGW, "true"]          
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !FindInMap [RegionCIDRMap, !Ref "AWS::Region", VpcCidr]
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Ref VpcName
+
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [RegionCIDRMap, !Ref "AWS::Region", Subnet1]
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "Subnet1"
+
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !FindInMap [RegionCIDRMap, !Ref "AWS::Region", subnet2]
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: "Subnet2"
+
+  RouteTablePublica:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: RT-Publica
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub "${VpcName}-IGW"
+
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: Adjuntar
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !If [Adjuntar, !Ref InternetGateway, !Ref "AWS::NoValue"]
+
+  RutaInternet:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTablePublica
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  AsociacionSubnet1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref Subnet1
+      RouteTableId: !Ref RouteTablePublica
+
+Outputs:
+  VPCId:
+    Description: ID de la VPC
+    Value: !Ref VPC
+
+  Subnet1Id:
+    Description: ID de la Subred 1
+    Value: !Ref Subnet1
+
+  Subnet2Id:
+    Description: ID de la Subred 2
+    Value: !Ref Subnet2
+
+  IGWAttached:
+    Description: Indica si se creó el Internet Gateway
+    Value: !If [ Adjuntar, "true", "false" ]
