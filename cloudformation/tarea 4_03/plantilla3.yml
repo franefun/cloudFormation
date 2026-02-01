@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Bucket S3 con acceso privado/publico usando Mappings, Conditions y Lifecycle
+
+Parameters:
+
+  BucketName:
+    Type: String
+    Description: Nombre del bucket S3
+    Default: "my-bucket-name"
+
+  NivelAcceso:
+    Type: String
+    Description: Nivel de acceso del bucket
+    Default: "privado"
+    AllowedValues:
+      - privado
+      - publico
+
+Mappings:
+  StorageClassMap:
+    publico:
+      LifecycleClass: INTELLIGENT_TIERING
+    privado:
+      LifecycleClass: NONE
+
+Conditions:
+  EsPublico: !Equals [!Ref NivelAcceso, "publico"]
+  EsPrivado: !Equals [!Ref NivelAcceso, "privado"]
+
+Resources:
+
+  MiBucketS3:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: !If [EsPrivado, true, false]
+        BlockPublicPolicy: !If [EsPrivado, true, false]
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: !If [EsPrivado, true, false]
+      LifecycleConfiguration:
+        Rules:
+          - Status: Enabled
+            Transitions: !If
+              - EsPublico
+              -
+                - TransitionInDays: 1
+                  StorageClass: !FindInMap
+                    - StorageClassMap
+                    - !Ref NivelAcceso
+                    - LifecycleClass
+              - !Ref AWS::NoValue
+
+  MiBucketS3Policy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MiBucketS3
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: !If [EsPrivado, Deny, Allow]
+            Principal: "*"
+            Action: "s3:GetObject"
+            Resource: !Sub "${MiBucketS3.Arn}/*"
+            Condition: !If
+              - EsPrivado
+              -
+                Bool:
+                  "aws:SecureTransport": false
+              - !Ref AWS::NoValue
+
+Outputs:
+
+  BucketArnOutput:
+    Description: ARN del bucket S3
+    Value: !GetAtt MiBucketS3.Arn
+
+  UrlBucketOutput:
+    Description: URL del bucket S3
+    Value: !Sub "https://${MiBucketS3}.s3.amazonaws.com"
